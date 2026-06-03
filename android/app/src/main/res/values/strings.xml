@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">QuickWorker</string>
+    <string name="title_activity_main">QuickWorker</string>
+    <string name="package_name">com.kirangowda.quickworker</string>
+    <string name="custom_url_scheme">com.kirangowda.quickworker</string>
+</resources>
