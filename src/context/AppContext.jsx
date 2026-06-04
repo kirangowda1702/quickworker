@@ -380,8 +380,44 @@ export const AppProvider = ({ children }) => {
   };
 
   const loginWithGoogle = async () => {
+    // 1. If using a mock API key, log in offline immediately to prevent popup triggers
+    const apiKey = auth.config?.apiKey || "";
+    const isMockConfig = apiKey.includes("MOCK") || !apiKey || apiKey === "your_api_key_here";
+
+    if (isMockConfig) {
+      const mockGoogleProfile = {
+        uid: `MOCK_GOOGLE_UID_${Date.now()}`,
+        email: "google-demo@quickworker.com",
+        displayName: "Google Demo User",
+        photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=google-demo",
+        isWorker: false,
+        isAdmin: false
+      };
+      setUser(mockGoogleProfile);
+      showToast("Logged in with Google (Demo Account)!", "info");
+      return { success: true, isDemo: true };
+    }
+
+    // 2. Check if user is on mobile. If so, use redirect instead of popup
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+    if (isMobile) {
+      try {
+        setAuthLoading(true);
+        showToast("Redirecting to Google Sign In...", "info");
+        await signInWithRedirect(auth, googleProvider);
+        return { success: true, isRedirecting: true };
+      } catch (redirectErr) {
+        console.error("❌ Google Redirect Login error:", redirectErr);
+        showToast(`Redirect Authentication failed: ${redirectErr.message}`, "error");
+        return { success: false, error: redirectErr.message };
+      } finally {
+        setAuthLoading(false);
+      }
+    }
+
+    // 3. Desktop flow: try popup first, then fallback to redirect if blocked
     try {
-      // 1. Call signInWithPopup immediately in the user gesture call stack to bypass popup blockers
       await signInWithPopup(auth, googleProvider);
       return { success: true };
     } catch (error) {
@@ -406,29 +442,6 @@ export const AppProvider = ({ children }) => {
         } finally {
           setAuthLoading(false);
         }
-      }
-      
-      // 2. If it failed due to invalid API Key or Network/Config failure, fall back to Mock Google Login!
-      const isConfigError = 
-        error.code === "auth/invalid-api-key" || 
-        error.code === "auth/api-key-not-valid" ||
-        error.message?.toLowerCase().includes("api-key") ||
-        error.message?.toLowerCase().includes("key-not-valid") ||
-        error.message?.toLowerCase().includes("invalid-api-key") ||
-        error.code === "auth/network-request-failed";
-
-      if (isConfigError) {
-        const mockGoogleProfile = {
-          uid: `MOCK_GOOGLE_UID_${Date.now()}`,
-          email: "google-demo@quickworker.com",
-          displayName: "Google Demo User",
-          photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=google-demo",
-          isWorker: false,
-          isAdmin: false
-        };
-        setUser(mockGoogleProfile);
-        showToast("Logged in with Google (Demo Account)!", "info");
-        return { success: true, isDemo: true };
       }
       
       showToast(error.message || "Google sign in failed. Please use Email login.", "error");
