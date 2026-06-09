@@ -60,7 +60,7 @@ export default function AIChatbot() {
   ];
 
   return (
-    <div className="fixed bottom-6 left-6 sm:bottom-8 sm:left-8 z-40">
+    <div className="fixed bottom-20 left-6 sm:bottom-8 sm:left-8 z-50">
       {/* Floating Action Button */}
       {!isOpen && (
         <button
