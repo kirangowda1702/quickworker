@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import { 
   auth, 
   db, 
@@ -9,20 +9,36 @@ import {
   signInWithRedirect,
   getRedirectResult,
   signOut,
-  onAuthStateChanged
+  onAuthStateChanged,
+  isConfigValid
 } from "../lib/firebase";
 import { 
   collection, 
   addDoc, 
   getDocs, 
+  getDoc,
+  setDoc,
   doc, 
   updateDoc, 
   query, 
   where,
   onSnapshot,
-  orderBy
+  orderBy,
+  serverTimestamp,
+  writeBatch
 } from "firebase/firestore";
 import { services as initialServices, workers as initialWorkers } from "../data";
+
+const safeGetTime = (val) => {
+  if (!val) return Date.now();
+  if (typeof val.toDate === "function") return val.toDate().getTime();
+  if (val.seconds) return val.seconds * 1000;
+  if (typeof val === "string") {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? Date.now() : d.getTime();
+  }
+  return Date.now();
+};
 
 const AppContext = createContext(null);
 
@@ -38,6 +54,10 @@ export const AppProvider = ({ children }) => {
   // Authentication & Profile State
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  
+  // Keep a ref to track the currently logged in user to avoid duplicate fetches and duplicate toasts
+  const currentUserRef = useRef(null);
+  const isFirstLoad = useRef(true);
 
   // App Data States
   const [services, setServices] = useState(initialServices);
@@ -60,6 +80,15 @@ export const AppProvider = ({ children }) => {
 
   // UI States
   const [toasts, setToasts] = useState([]);
+
+  // PWA & Connection States
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+  const [showInstallBanner, setShowInstallBanner] = useState(() => {
+    return localStorage.getItem("pwa_dismissed") !== "true" && 
+           !window.matchMedia("(display-mode: standalone)").matches;
+  });
 
   // System status toast trigger
   const showToast = (message, type = "success") => {
@@ -121,6 +150,8 @@ export const AppProvider = ({ children }) => {
         const result = await getRedirectResult(auth);
         if (result && result.user) {
           console.log("🔥 QuickWorker: Redirect login successful", result.user);
+          const profile = await syncUserProfileAfterLogin(result.user);
+          showToast(`Welcome back, ${profile.displayName}!`, "success");
         }
       } catch (error) {
         console.error("Firebase Redirect result check error:", error);
@@ -145,28 +176,129 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // Build user details
-        const isWorker = firebaseUser.email.endsWith("@quickworker.com") && firebaseUser.email !== "admin@quickworker.com";
-        const isAdmin = firebaseUser.email === "admin@quickworker.com";
-        
+        // If user is already set and matches the firebaseUser, do not reload
+        if (currentUserRef.current && currentUserRef.current.uid === firebaseUser.uid) {
+          setUser(currentUserRef.current);
+          setAuthLoading(false);
+          return;
+        }
+
+        // Fetch role from Firestore
+        let role = "customer";
+        let displayName = firebaseUser.displayName || firebaseUser.email.split("@")[0];
+        let photoURL = firebaseUser.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${firebaseUser.email}`;
+
+        try {
+          const userDocRef = doc(db, "users", firebaseUser.uid);
+          const userDoc = await getDoc(userDocRef);
+          
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            role = userData.role || "customer";
+            displayName = userData.displayName || displayName;
+            photoURL = userData.photoURL || photoURL;
+          } else {
+            const defaultIsWorker = firebaseUser.email.endsWith("@quickworker.com") && firebaseUser.email !== "admin@quickworker.com";
+            const defaultIsAdmin = firebaseUser.email === "admin@quickworker.com";
+            role = defaultIsAdmin ? "admin" : defaultIsWorker ? "worker" : "customer";
+            
+            // Save initial user profile doc in Firestore
+            await setDoc(userDocRef, {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email,
+              displayName,
+              photoURL,
+              role,
+              createdAt: new Date().toISOString()
+            });
+          }
+        } catch (dbErr) {
+          console.warn("Could not query Firestore user role, defaulting based on email:", dbErr);
+          const defaultIsWorker = firebaseUser.email.endsWith("@quickworker.com") && firebaseUser.email !== "admin@quickworker.com";
+          const defaultIsAdmin = firebaseUser.email === "admin@quickworker.com";
+          role = defaultIsAdmin ? "admin" : defaultIsWorker ? "worker" : "customer";
+        }
+
         const profile = {
           uid: firebaseUser.uid,
           email: firebaseUser.email,
-          displayName: firebaseUser.displayName || firebaseUser.email.split("@")[0],
-          photoURL: firebaseUser.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${firebaseUser.email}`,
-          isWorker,
-          isAdmin
+          displayName,
+          photoURL,
+          role,
+          isWorker: role === "worker",
+          isAdmin: role === "admin"
         };
+        currentUserRef.current = profile;
         setUser(profile);
-        showToast(`Welcome back, ${profile.displayName}!`, "success");
+        
+        if (!isFirstLoad.current) {
+          showToast(`Welcome back, ${profile.displayName}!`, "success");
+        }
+        isFirstLoad.current = false;
       } else {
+        currentUserRef.current = null;
         setUser(null);
+        isFirstLoad.current = false;
       }
       setAuthLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
+
+  // Handle PWA Events & Offline status
+  useEffect(() => {
+    const handleBeforeInstall = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+      console.log("📥 PWA install prompt available.");
+    };
+
+    const goOnline = () => {
+      setIsOnline(true);
+      showToast("You are back online!", "success");
+    };
+
+    const goOffline = () => {
+      setIsOnline(false);
+      showToast("Working offline. Showing cached data.", "warning");
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstall);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+
+    // Initial check for standalone mode
+    if (window.matchMedia("(display-mode: standalone)").matches) {
+      setIsInstallable(false);
+      setShowInstallBanner(false);
+    }
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+
+  const triggerInstallPrompt = async () => {
+    if (!deferredPrompt) {
+      console.warn("PWA: No install prompt captured yet.");
+      return false;
+    }
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`PWA: User choice outcome: ${outcome}`);
+    setDeferredPrompt(null);
+    setIsInstallable(false);
+    setShowInstallBanner(false);
+    if (outcome === "accepted") {
+      showToast("Thank you for installing QuickWorker!", "success");
+      return true;
+    }
+    return false;
+  };
 
   // Fetch / Sync Bookings and Notifications in Realtime
   useEffect(() => {
@@ -179,35 +311,26 @@ export const AppProvider = ({ children }) => {
     // A. Subscribing to bookings in Firestore
     const bookingsRef = collection(db, "bookings");
     let qBookings = query(bookingsRef);
-    if (!user.isAdmin && !user.isWorker) {
+    if (user.role === "worker") {
+      qBookings = query(bookingsRef, where("workerEmail", "==", user.email));
+    } else if (user.role === "customer") {
       qBookings = query(bookingsRef, where("customerUid", "==", user.uid));
     }
     
     const unsubscribeBookings = onSnapshot(qBookings, (snapshot) => {
-      const fsBookings = [];
-      snapshot.forEach((docSnap) => {
-        fsBookings.push({ id: docSnap.id, ...docSnap.data() });
+      const fsBookings = snapshot.docs.map((docSnap) => {
+        const { id, ...data } = docSnap.data();
+        return {
+          id: docSnap.id,
+          ...data
+        };
       });
 
-      // Load local bookings backup
-      const localStr = localStorage.getItem(`bookings_${user.uid}`);
-      const localBookings = localStr ? JSON.parse(localStr) : [];
-      
-      const merged = [...fsBookings];
-      localBookings.forEach((lb) => {
-        if (!merged.some(mb => mb.id === lb.id || mb.bookingId === lb.bookingId)) {
-          merged.push(lb);
-        }
-      });
-
-      merged.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      setBookings(merged);
+      fsBookings.sort((a, b) => safeGetTime(b.createdAt) - safeGetTime(a.createdAt));
+      setBookings(fsBookings);
     }, (error) => {
-      console.warn("Firestore bookings real-time sync failed, loading offline local backups:", error);
-      const localStr = localStorage.getItem(`bookings_${user.uid}`);
-      const localBookings = localStr ? JSON.parse(localStr) : [];
-      localBookings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      setBookings(localBookings);
+      console.error("Firestore bookings real-time sync failed:", error);
+      showToast("Real-time bookings sync failed", "error");
     });
 
     // B. Subscribing to notifications in Firestore
@@ -226,13 +349,10 @@ export const AppProvider = ({ children }) => {
         fsNotif.push({ id: docSnap.id, ...docSnap.data() });
       });
       // Sort: newest first
-      fsNotif.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      fsNotif.sort((a, b) => safeGetTime(b.createdAt) - safeGetTime(a.createdAt));
       setNotifications(fsNotif);
     }, (error) => {
-      console.warn("Firestore notifications sync failed:", error);
-      // Fallback to local storage
-      const localNotifStr = localStorage.getItem(`notifications_${user.uid}`);
-      setNotifications(localNotifStr ? JSON.parse(localNotifStr) : []);
+      console.error("Firestore notifications sync failed:", error);
     });
 
     return () => {
@@ -241,14 +361,16 @@ export const AppProvider = ({ children }) => {
     };
   }, [user]);
 
-  // Load Custom Services and Workers from Firestore / Local Storage
+  // Load Custom Services and Workers from Firestore
   useEffect(() => {
     const loadCustomData = async () => {
       try {
         // Load custom services
         const servSnapshot = await getDocs(collection(db, "services"));
         const customServs = [];
-        servSnapshot.forEach(doc => customServs.push(doc.data()));
+        servSnapshot.forEach(docSnap => {
+          customServs.push({ id: docSnap.id, ...docSnap.data() });
+        });
         if (customServs.length > 0) {
           setServices((prev) => {
             const merged = [...prev];
@@ -266,12 +388,22 @@ export const AppProvider = ({ children }) => {
         // Load custom workers
         const workSnapshot = await getDocs(collection(db, "workers"));
         const customWorkers = [];
-        workSnapshot.forEach(doc => customWorkers.push(doc.data()));
+        workSnapshot.forEach(docSnap => {
+          customWorkers.push({ id: docSnap.id, ...docSnap.data() });
+        });
         if (customWorkers.length > 0) {
           setWorkers((prev) => {
             const merged = [...prev];
             customWorkers.forEach(cw => {
-              if (!merged.some(m => m.id === cw.id)) merged.push(cw);
+              if (!merged.some(m => m.id === cw.id)) {
+                merged.push(cw);
+              } else {
+                // update existing static worker if changed in DB (e.g. rating, availability)
+                const idx = merged.findIndex(m => m.id === cw.id);
+                if (idx !== -1) {
+                  merged[idx] = { ...merged[idx], ...cw };
+                }
+              }
             });
             return merged;
           });
@@ -280,22 +412,60 @@ export const AppProvider = ({ children }) => {
         console.warn("Could not load custom workers from Firestore", err);
       }
     };
-    
-    // Load local storage custom workers as well
-    const localWorkersStr = localStorage.getItem("custom_workers");
-    if (localWorkersStr) {
-      const localWorkers = JSON.parse(localWorkersStr);
-      setWorkers(prev => {
-        const merged = [...prev];
-        localWorkers.forEach(lw => {
-          if (!merged.some(m => m.id === lw.id)) merged.push(lw);
-        });
-        return merged;
-      });
-    }
 
     loadCustomData();
   }, []);
+
+  // Helper to sync user profile and set state instantly after login/register
+  const syncUserProfileAfterLogin = async (firebaseUser, customDisplayName = null) => {
+    let role = "customer";
+    let displayName = firebaseUser.displayName || customDisplayName || firebaseUser.email.split("@")[0];
+    let photoURL = firebaseUser.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${firebaseUser.email}`;
+
+    try {
+      const userDocRef = doc(db, "users", firebaseUser.uid);
+      const userDoc = await getDoc(userDocRef);
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        role = userData.role || "customer";
+        displayName = userData.displayName || displayName;
+        photoURL = userData.photoURL || photoURL;
+      } else {
+        const defaultIsWorker = firebaseUser.email.endsWith("@quickworker.com") && firebaseUser.email !== "admin@quickworker.com";
+        const defaultIsAdmin = firebaseUser.email === "admin@quickworker.com";
+        role = defaultIsAdmin ? "admin" : defaultIsWorker ? "worker" : "customer";
+        
+        await setDoc(userDocRef, {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          displayName,
+          photoURL,
+          role,
+          createdAt: new Date().toISOString()
+        });
+      }
+    } catch (dbErr) {
+      console.warn("Could not query Firestore user role during sync:", dbErr);
+      const defaultIsWorker = firebaseUser.email.endsWith("@quickworker.com") && firebaseUser.email !== "admin@quickworker.com";
+      const defaultIsAdmin = firebaseUser.email === "admin@quickworker.com";
+      role = defaultIsAdmin ? "admin" : defaultIsWorker ? "worker" : "customer";
+    }
+
+    const profile = {
+      uid: firebaseUser.uid,
+      email: firebaseUser.email,
+      displayName,
+      photoURL,
+      role,
+      isWorker: role === "worker",
+      isAdmin: role === "admin"
+    };
+
+    currentUserRef.current = profile;
+    setUser(profile);
+    return profile;
+  };
 
   // Firebase auth functions
   const emailLogin = async (email, password) => {
@@ -304,6 +474,7 @@ export const AppProvider = ({ children }) => {
       await signInWithEmailAndPassword(auth, email, password);
       return { success: true };
     } catch (error) {
+      setAuthLoading(false);
       console.error("Login error:", error);
       
       const isFallbackRequired = 
@@ -325,9 +496,11 @@ export const AppProvider = ({ children }) => {
             email: email,
             displayName: email.split("@")[0].toUpperCase(),
             photoURL: `https://api.dicebear.com/7.x/adventurer/svg?seed=${email}`,
+            role: isAdmin ? "admin" : isWorker ? "worker" : "customer",
             isWorker,
             isAdmin
           };
+          currentUserRef.current = mockProfile;
           setUser(mockProfile);
           showToast(`Welcome back (Demo), ${mockProfile.displayName}!`, "info");
           return { success: true, isDemo: true };
@@ -335,8 +508,6 @@ export const AppProvider = ({ children }) => {
       }
       showToast(error.message, "error");
       return { success: false, error: error.message };
-    } finally {
-      setAuthLoading(false);
     }
   };
 
@@ -344,8 +515,26 @@ export const AppProvider = ({ children }) => {
     setAuthLoading(true);
     try {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
+      
+      // Save profile doc in Firestore immediately so auth observer can load it
+      const userDocRef = doc(db, "users", cred.user.uid);
+      const photoURL = `https://api.dicebear.com/7.x/adventurer/svg?seed=${email}`;
+      const defaultIsWorker = email.endsWith("@quickworker.com") && email !== "admin@quickworker.com";
+      const defaultIsAdmin = email === "admin@quickworker.com";
+      const role = defaultIsAdmin ? "admin" : defaultIsWorker ? "worker" : "customer";
+
+      await setDoc(userDocRef, {
+        uid: cred.user.uid,
+        email: email,
+        displayName,
+        photoURL,
+        role,
+        createdAt: new Date().toISOString()
+      });
+
       return { success: true };
     } catch (error) {
+      setAuthLoading(false);
       console.error("Registration error:", error);
 
       const isFallbackRequired = 
@@ -365,17 +554,17 @@ export const AppProvider = ({ children }) => {
           email: email,
           displayName: displayName || email.split("@")[0].toUpperCase(),
           photoURL: `https://api.dicebear.com/7.x/adventurer/svg?seed=${email}`,
+          role: isAdmin ? "admin" : isWorker ? "worker" : "customer",
           isWorker,
           isAdmin
         };
+        currentUserRef.current = mockProfile;
         setUser(mockProfile);
         showToast("Registered successfully (Demo Account)!", "info");
         return { success: true, isDemo: true };
       }
       showToast(error.message, "error");
       return { success: false, error: error.message };
-    } finally {
-      setAuthLoading(false);
     }
   };
 
@@ -390,9 +579,11 @@ export const AppProvider = ({ children }) => {
         email: "google-demo@quickworker.com",
         displayName: "Google Demo User",
         photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=google-demo",
+        role: "customer",
         isWorker: false,
         isAdmin: false
       };
+      currentUserRef.current = mockGoogleProfile;
       setUser(mockGoogleProfile);
       showToast("Logged in with Google (Demo Account)!", "info");
       return { success: true, isDemo: true };
@@ -408,16 +599,16 @@ export const AppProvider = ({ children }) => {
         await signInWithRedirect(auth, googleProvider);
         return { success: true, isRedirecting: true };
       } catch (redirectErr) {
+        setAuthLoading(false);
         console.error("❌ Google Redirect Login error:", redirectErr);
         showToast(`Redirect Authentication failed: ${redirectErr.message}`, "error");
         return { success: false, error: redirectErr.message };
-      } finally {
-        setAuthLoading(false);
       }
     }
 
     // 3. Desktop flow: try popup first, then fallback to redirect if blocked
     try {
+      setAuthLoading(true);
       await signInWithPopup(auth, googleProvider);
       return { success: true };
     } catch (error) {
@@ -436,14 +627,14 @@ export const AppProvider = ({ children }) => {
           await signInWithRedirect(auth, googleProvider);
           return { success: true, isRedirecting: true };
         } catch (redirectErr) {
+          setAuthLoading(false);
           console.error("❌ Google Redirect Login error:", redirectErr);
           showToast(`Redirect Authentication failed: ${redirectErr.message}`, "error");
           return { success: false, error: redirectErr.message };
-        } finally {
-          setAuthLoading(false);
         }
       }
       
+      setAuthLoading(false);
       showToast(error.message || "Google sign in failed. Please use Email login.", "error");
       return { success: false, error: error.message };
     }
@@ -453,11 +644,13 @@ export const AppProvider = ({ children }) => {
     setAuthLoading(true);
     try {
       await signOut(auth);
+      currentUserRef.current = null;
       setUser(null);
       setBookings([]);
       showToast("Signed out successfully!", "success");
     } catch (error) {
       // Force logout on local environment
+      currentUserRef.current = null;
       setUser(null);
       setBookings([]);
       showToast("Signed out from session", "info");
@@ -473,116 +666,313 @@ export const AppProvider = ({ children }) => {
       return null;
     }
 
-    const bookingId = `QW-${Math.floor(100000 + Math.random() * 900000)}`;
+    const matchedWorker = workers.find((w) => w.id === bookingDetails.workerId);
+    const workerEmail = bookingDetails.workerEmail || matchedWorker?.email || "";
+    const workerPhone = bookingDetails.workerPhone || matchedWorker?.phone || "";
+    const workerName = bookingDetails.workerName || matchedWorker?.name || "Unknown Worker";
+    const customerPhone = bookingDetails.contactPhone || bookingDetails.phone || "";
+    const estimatedPrice = bookingDetails.servicePrice || bookingDetails.estimatedPrice || 0;
+    const notes = bookingDetails.notes || bookingDetails.instructions || "";
+
+    const displayBookingId = `QW-${Math.floor(100000 + Math.random() * 900000)}`;
+    const now = new Date().toISOString();
     const newBooking = {
-      bookingId,
+      // Required Firestore document keys from USER_REQUEST
+      bookingId: displayBookingId, // for compatibility
+      displayBookingId,
+      customerId: user.uid,
+      customerName: user.displayName,
+      customerPhone,
+      workerId: bookingDetails.workerId,
+      workerName,
+      workerPhone,
+      workerEmail,
+      serviceName: bookingDetails.serviceName,
+      bookingDate: bookingDetails.bookingDate,
+      bookingTime: bookingDetails.bookingTime,
+      address: bookingDetails.address,
+      notes,
+      estimatedPrice,
+      bookingStatus: "pending", // lowercase default
+      paymentStatus: bookingDetails.paymentStatus || "pending",
+
+      // Existing compatibility keys
+      userId: user.uid,
+      userName: user.displayName,
+      userEmail: user.email,
       customerUid: user.uid,
       customerName: user.displayName,
       customerEmail: user.email,
       ...bookingDetails,
-      status: "Pending", // Pending, Approved, Completed, Cancelled
-      createdAt: new Date().toISOString()
+      status: "Pending",
     };
 
+    const { id: dummyId, ...newBookingWithoutId } = newBooking;
+    const bookingData = {
+      ...newBookingWithoutId,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+
+    // Filter out all undefined fields before saving to Firestore
+    const cleanedBookingData = Object.fromEntries(
+      Object.entries(bookingData).filter(([_, v]) => v !== undefined)
+    );
+
     try {
-      // Add to Firestore
-      const docRef = await addDoc(collection(db, "bookings"), newBooking);
-      const bookingWithId = { id: docRef.id, ...newBooking };
+      console.log("Creating booking...");
+      console.log("Final booking payload:", cleanedBookingData);
+
+      const docRef = await addDoc(collection(db, "bookings"), cleanedBookingData);
+      console.log("Firestore doc ID:", docRef.id);
+
+      const bookingWithId = { 
+        id: docRef.id, 
+        createdAt: now,
+        updatedAt: now,
+        ...newBookingWithoutId 
+      };
       
-      // Update local state
+      // Update local state for instant feedback
       setBookings((prev) => [bookingWithId, ...prev]);
       
-      // Save local storage backup
-      const local = JSON.parse(localStorage.getItem(`bookings_${user.uid}`) || "[]");
-      localStorage.setItem(`bookings_${user.uid}`, JSON.stringify([bookingWithId, ...local]));
-
       showToast("Booking created successfully!", "success");
 
-      // Send Realtime notifications
-      await addNotification(
+      // Send Realtime notifications in a non-blocking way
+      addNotification(
         user.uid, 
-        `Your booking for ${bookingDetails.serviceName} with ${bookingDetails.workerName} is confirmed. ID: ${bookingId}`, 
+        `Your booking for ${bookingDetails.serviceName} with ${bookingDetails.workerName} is confirmed. ID: ${displayBookingId}`, 
         "success"
-      );
-      await addNotification(
+      ).catch(console.error);
+      addNotification(
         "admin", 
-        `New booking request ${bookingId} created by ${user.displayName} for ${bookingDetails.serviceName}.`, 
+        `New booking request ${displayBookingId} created by ${user.displayName} for ${bookingDetails.serviceName}.`, 
         "info"
-      );
+      ).catch(console.error);
 
       return bookingWithId;
     } catch (error) {
-      console.warn("Firestore save failed, booking saved locally:", error);
-      const bookingWithId = { id: bookingId, ...newBooking };
-      
-      // Update local state
-      setBookings((prev) => [bookingWithId, ...prev]);
-      
-      // Save to localStorage
-      const local = JSON.parse(localStorage.getItem(`bookings_${user.uid}`) || "[]");
-      localStorage.setItem(`bookings_${user.uid}`, JSON.stringify([bookingWithId, ...local]));
-
-      showToast("Booking placed successfully (Offline Mode)", "info");
-
-      // Send Offline notifications
-      await addNotification(
-        user.uid, 
-        `Your booking for ${bookingDetails.serviceName} with ${bookingDetails.workerName} is placed (Offline Mode). ID: ${bookingId}`, 
-        "warning"
-      );
-
-      return bookingWithId;
+      console.error("❌ [addBooking] Firestore save failed:", error);
+      showToast(`Failed to create booking: ${error.message || error}`, "error");
+      return null;
     }
   };
 
   // Update Booking Status
   const updateBookingStatus = async (id, status) => {
+    console.log("🚀 [updateBookingStatus] Function called with id:", id, "and status:", status);
+    if (!id) {
+      console.warn("⚠️ [updateBookingStatus] Cannot update booking: invalid ID");
+      showToast("Cannot update booking: invalid ID", "error");
+      return { success: false, error: "Invalid ID" };
+    }
+
+    let bookingStatus = "pending";
+    let statusLabel = status;
+    const lowerStatus = status.toLowerCase();
+    
+    if (lowerStatus === "approved" || lowerStatus === "accepted") {
+      bookingStatus = "accepted";
+      statusLabel = "Accepted";
+    } else if (lowerStatus.includes("way") || lowerStatus.includes("on_the_way")) {
+      bookingStatus = "worker_on_the_way";
+      statusLabel = "Worker on the Way";
+    } else if (lowerStatus.includes("started") || lowerStatus.includes("work_started") || lowerStatus.includes("in_progress")) {
+      bookingStatus = "in_progress";
+      statusLabel = "In Progress";
+    } else if (lowerStatus === "completed" || lowerStatus === "reviewed") {
+      bookingStatus = "completed";
+      statusLabel = "Completed";
+    } else if (lowerStatus === "cancelled") {
+      bookingStatus = "cancelled";
+      statusLabel = "Cancelled";
+    }
+
+    const now = new Date().toISOString();
+    
+    // Resolve Firestore ID if human-readable bookingId is passed
+    let targetDocId = id;
+    let foundBooking = bookings.find(b => b.id === id || b.bookingId === id);
+    if (foundBooking) {
+      targetDocId = foundBooking.id;
+    }
+    console.log("🚀 [updateBookingStatus] Resolved targetDocId:", targetDocId, "foundBooking:", foundBooking ? foundBooking.bookingId : "none");
+
+    // Prevent duplicate cancellations
+    if (bookingStatus === "cancelled" && foundBooking && 
+        (foundBooking.bookingStatus === "cancelled" || foundBooking.status === "Cancelled")) {
+      console.log("🚀 [updateBookingStatus] Booking is already cancelled. Exiting early.");
+      showToast("Booking is already cancelled", "info");
+      return { success: true, alreadyCancelled: true };
+    }
+
+    // Online Firestore update flow
+    console.log("🚀 [updateBookingStatus] Performing online updateDoc for:", targetDocId);
     try {
-      // Try firestore update first
-      const docRef = doc(db, "bookings", id);
-      await updateDoc(docRef, { status });
+      const docRef = doc(db, "bookings", targetDocId);
+      await updateDoc(docRef, { status: statusLabel, bookingStatus, updatedAt: serverTimestamp() });
+      console.log("🚀 [updateBookingStatus] online updateDoc succeeded!");
       
-      setBookings((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, status } : b))
-      );
-      showToast(`Booking ${status.toLowerCase()} successfully!`, "success");
+      showToast(`Booking ${statusLabel.toLowerCase()} successfully!`, "success");
 
-      // Find the booking details to notify the customer
-      const updatedBooking = bookings.find(b => b.id === id || b.bookingId === id);
+      const updatedBooking = foundBooking || bookings.find(b => b.id === targetDocId || b.id === id || b.bookingId === id);
       if (updatedBooking) {
-        await addNotification(
-          updatedBooking.customerUid, 
-          `Your booking ${updatedBooking.bookingId} has been ${status.toLowerCase()}.`, 
-          status === "Approved" || status === "Completed" ? "success" : "info"
-        );
+        if (bookingStatus === "cancelled") {
+          addNotification(
+            updatedBooking.customerId || updatedBooking.customerUid || updatedBooking.userId, 
+            `Your booking for ${updatedBooking.serviceName} with ${updatedBooking.workerName} has been cancelled. ID: ${updatedBooking.bookingId}`, 
+            "warning"
+          ).catch(console.error);
+          if (updatedBooking.workerId) {
+            addNotification(
+              updatedBooking.workerId, 
+              `Booking request ${updatedBooking.bookingId} for ${updatedBooking.serviceName} has been cancelled by the customer.`, 
+              "warning"
+            ).catch(console.error);
+          }
+          addNotification(
+            "admin", 
+            `Booking ${updatedBooking.bookingId} has been cancelled by customer ${updatedBooking.customerName || "User"}.`, 
+            "warning"
+          ).catch(console.error);
+        } else {
+          addNotification(
+            updatedBooking.customerUid || updatedBooking.customerId || updatedBooking.userId, 
+            `Your booking ${updatedBooking.bookingId} status is now: ${statusLabel.toLowerCase()}.`, 
+            statusLabel === "Accepted" || statusLabel === "Completed" ? "success" : "info"
+          ).catch(console.error);
+        }
       }
+      return { success: true, mode: "online" };
     } catch (error) {
-      console.warn("Firestore update failed, updating locally:", error);
+      console.error("❌ [updateBookingStatus] Firestore update failed:", error);
+      showToast(`Failed to update booking status: ${error.message}`, "error");
+      return { success: false, error: error.message };
+    }
+  };
+
+  // Update User Profile
+  const updateUserProfile = async (displayName, photoURL) => {
+    if (!user) {
+      showToast("User not authenticated", "error");
+      return false;
+    }
+
+    try {
+      const userDocRef = doc(db, "users", user.uid);
+      await updateDoc(userDocRef, {
+        displayName,
+        photoURL
+      });
+      setUser((prev) => ({ ...prev, displayName, photoURL }));
+      showToast("Profile updated successfully!", "success");
+      return true;
+    } catch (error) {
+      console.error("Firestore user profile update failed:", error);
+      showToast(`Profile update failed: ${error.message}`, "error");
+      return false;
+    }
+  };
+
+  // Update Worker Profile
+  const updateWorkerProfile = async (workerId, updatedFields) => {
+    try {
+      const workerDocRef = doc(db, "workers", workerId);
+      await updateDoc(workerDocRef, updatedFields);
       
-      // Fallback local update
-      setBookings((prev) =>
-        prev.map((b) => (b.id === id || b.bookingId === id ? { ...b, status } : b))
+      // Update local workers state
+      setWorkers((prev) => 
+        prev.map((w) => (w.id === workerId ? { ...w, ...updatedFields } : w))
       );
+      
+      showToast("Professional profile updated successfully!", "success");
+      return true;
+    } catch (error) {
+      console.error("Firestore worker profile update failed:", error);
+      showToast(`Professional profile update failed: ${error.message}`, "error");
+      return false;
+    }
+  };
 
-      // Save to localStorage
-      if (user) {
-        const local = JSON.parse(localStorage.getItem(`bookings_${user.uid}`) || "[]");
-        const updatedLocal = local.map((b) => 
-          (b.id === id || b.bookingId === id ? { ...b, status } : b)
-        );
-        localStorage.setItem(`bookings_${user.uid}`, JSON.stringify(updatedLocal));
+  // Submit Review and recalculate worker rating
+  const submitReview = async (reviewDetails) => {
+    if (!user) return false;
+    
+    const { bookingId, workerId, rating, comment } = reviewDetails;
+    const reviewDoc = {
+      bookingId,
+      workerId,
+      customerId: user.uid,
+      rating: parseInt(rating) || 5,
+      reviewMessage: comment || "",
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      // 1. Add to reviews collection in Firestore
+      await addDoc(collection(db, "reviews"), reviewDoc);
+      
+      // 2. Query all reviews for this worker to calculate new average rating and count
+      const q = query(collection(db, "reviews"), where("workerId", "==", workerId));
+      const querySnapshot = await getDocs(q);
+      
+      let totalRating = 0;
+      let reviewCount = 0;
+      
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        totalRating += data.rating;
+        reviewCount += 1;
+      });
+      
+      if (reviewCount === 0) {
+        totalRating = rating;
+        reviewCount = 1;
       }
-
-      showToast(`Booking updated to ${status} (Local Storage)`, "info");
-
-      const updatedBooking = bookings.find(b => b.id === id || b.bookingId === id);
-      if (updatedBooking) {
-        await addNotification(
-          updatedBooking.customerUid, 
-          `[Offline Update] Your booking ${updatedBooking.bookingId} status is set to ${status}.`, 
-          "info"
+      
+      const averageRating = parseFloat((totalRating / reviewCount).toFixed(1));
+      
+      // 3. Update the worker document in Firestore
+      const workerDocRef = doc(db, "workers", workerId);
+      await updateDoc(workerDocRef, {
+        rating: averageRating,
+        reviewsCount: reviewCount,
+        completedJobs: reviewCount + 10
+      });
+      
+      // Update local state instantly
+      setWorkers((prev) => 
+        prev.map((w) => w.id === workerId ? { ...w, rating: averageRating, reviewsCount: reviewCount, completedJobs: reviewCount + 10 } : w)
+      );
+      
+      // 4. Update the booking status to "Reviewed" (both status and bookingStatus)
+      const booking = bookings.find(b => b.bookingId === bookingId || b.id === bookingId);
+      if (booking) {
+        const bookingDocRef = doc(db, "bookings", booking.id);
+        await updateDoc(bookingDocRef, {
+          status: "Reviewed",
+          bookingStatus: "completed",
+          updatedAt: new Date().toISOString()
+        });
+        
+        setBookings((prev) => 
+          prev.map((b) => b.id === booking.id ? { ...b, status: "Reviewed", bookingStatus: "completed", updatedAt: new Date().toISOString() } : b)
         );
+
+        // Add a notification for review reminder done
+        addNotification(
+          user.uid,
+          `Review submitted successfully for ${booking.workerName}. Thank you!`,
+          "success"
+        ).catch(console.error);
       }
+      
+      showToast("Thank you! Your review has been recorded.", "success");
+      return true;
+    } catch (err) {
+      console.error("Error submitting review:", err);
+      showToast(`Failed to submit review: ${err.message}`, "error");
+      return false;
     }
   };
 
@@ -599,17 +989,7 @@ export const AppProvider = ({ children }) => {
     try {
       await addDoc(collection(db, "notifications"), newNotif);
     } catch (error) {
-      console.warn("Firestore error adding notification, saving locally:", error);
-      // Fallback local storage
-      const localKey = `notifications_${user ? user.uid : "global"}`;
-      const local = JSON.parse(localStorage.getItem(localKey) || "[]");
-      const localNotif = { id: `N-${Date.now()}`, ...newNotif };
-      localStorage.setItem(localKey, JSON.stringify([localNotif, ...local]));
-      
-      // Update local state if the notification matches current user
-      if (!user || user.uid === userId || (userId === "admin" && user.isAdmin)) {
-        setNotifications((prev) => [localNotif, ...prev]);
-      }
+      console.error("Firestore error adding notification:", error);
     }
   };
 
@@ -619,16 +999,8 @@ export const AppProvider = ({ children }) => {
       const docRef = doc(db, "notifications", id);
       await updateDoc(docRef, { read: true });
     } catch (error) {
-      console.warn("Firestore error marking notification as read, updating locally:", error);
-      setNotifications((prev) => 
-        prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-      );
-      if (user) {
-        const localKey = `notifications_${user.uid}`;
-        const local = JSON.parse(localStorage.getItem(localKey) || "[]");
-        const updated = local.map((n) => (n.id === id ? { ...n, read: true } : n));
-        localStorage.setItem(localKey, JSON.stringify(updated));
-      }
+      console.error("Firestore error marking notification as read:", error);
+      showToast("Failed to mark notification as read", "error");
     }
   };
 
@@ -637,28 +1009,20 @@ export const AppProvider = ({ children }) => {
     try {
       const unread = notifications.filter(n => !n.read);
       for (const n of unread) {
-        if (n.id && !n.id.startsWith("N-")) { // skip local-only ones
+        if (n.id) {
           const docRef = doc(db, "notifications", n.id);
           await updateDoc(docRef, { read: true });
         }
       }
     } catch (error) {
-      console.warn("Firestore error marking all notifications as read, updating locally:", error);
-    }
-    
-    // Update local state
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    if (user) {
-      const localKey = `notifications_${user.uid}`;
-      const local = JSON.parse(localStorage.getItem(localKey) || "[]");
-      const updated = local.map((n) => ({ ...n, read: true }));
-      localStorage.setItem(localKey, JSON.stringify(updated));
+      console.error("Firestore error marking all notifications as read:", error);
+      showToast("Failed to mark all notifications as read", "error");
     }
   };
 
   // Register Custom Worker
   const registerWorker = async (workerData) => {
-    const id = `W${workers.length + 1}`;
+    const id = `W${(workers.length + 1).toString().padStart(3, "0")}`;
     const newWorker = {
       id,
       ...workerData,
@@ -669,22 +1033,16 @@ export const AppProvider = ({ children }) => {
     };
 
     try {
-      // Save to Firestore
-      await addDoc(collection(db, "workers"), newWorker);
+      const workerDocRef = doc(db, "workers", newWorker.id);
+      await setDoc(workerDocRef, newWorker);
+      setWorkers((prev) => [newWorker, ...prev]);
       showToast("Worker registered in database successfully!", "success");
+      return newWorker;
     } catch (err) {
-      console.warn("Could not save worker to Firestore, saving locally", err);
+      console.error("Could not save worker to Firestore:", err);
+      showToast(`Registration failed: ${err.message}`, "error");
+      return null;
     }
-
-    // Save to state
-    setWorkers((prev) => [newWorker, ...prev]);
-
-    // Save to local storage custom workers list
-    const locals = JSON.parse(localStorage.getItem("custom_workers") || "[]");
-    localStorage.setItem("custom_workers", JSON.stringify([newWorker, ...locals]));
-
-    showToast("Registration completed!", "success");
-    return newWorker;
   };
 
   // Register Custom Service (Admin function)
@@ -696,14 +1054,14 @@ export const AppProvider = ({ children }) => {
     };
 
     try {
-      await addDoc(collection(db, "services"), newService);
-      showToast("New service added in database!", "success");
+      const serviceDocRef = doc(db, "services", newService.id);
+      await setDoc(serviceDocRef, newService);
+      setServices((prev) => [...prev, newService]);
+      showToast(`Service "${newService.name}" created!`, "success");
     } catch (err) {
-      console.warn("Could not save service to Firestore, saving locally", err);
+      console.error("Could not save service to Firestore:", err);
+      showToast(`Failed to add service: ${err.message}`, "error");
     }
-
-    setServices((prev) => [...prev, newService]);
-    showToast(`Service "${newService.name}" created!`, "success");
   };
 
   // AI Chatbot Logic
@@ -785,11 +1143,14 @@ export const AppProvider = ({ children }) => {
     };
   };
 
+  const isAuthenticated = !!user;
+
   return (
     <AppContext.Provider
       value={{
         user,
         authLoading,
+        isAuthenticated,
         services,
         workers,
         bookings,
@@ -805,13 +1166,21 @@ export const AppProvider = ({ children }) => {
         logout: logoutUser,
         addBooking,
         updateBookingStatus,
+        updateUserProfile,
+        updateWorkerProfile,
         registerWorker,
         addService,
         askAI,
         notifications,
         addNotification,
         markNotificationAsRead,
-        markAllNotificationsAsRead
+        markAllNotificationsAsRead,
+        submitReview,
+        isOnline,
+        isInstallable,
+        showInstallBanner,
+        setShowInstallBanner,
+        triggerInstallPrompt
       }}
     >
       {children}

@@ -11,7 +11,8 @@ import {
   ArrowUpDown, 
   MapIcon, 
   CheckCircle,
-  HelpCircle
+  HelpCircle,
+  AlertCircle
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { getDistance } from "../data";
@@ -45,11 +46,13 @@ export default function WorkersList() {
   const processedWorkers = useMemo(() => {
     // 1. Calculate actual live distance for all workers
     let list = serviceWorkers.map((w) => {
+      const lat = w.coordinates?.lat || 13.0065;
+      const lng = w.coordinates?.lng || 76.1002;
       const distance = getDistance(
         userLocation.lat,
         userLocation.lng,
-        w.coordinates.lat,
-        w.coordinates.lng
+        lat,
+        lng
       );
       return { 
         ...w, 
@@ -358,7 +361,7 @@ export default function WorkersList() {
               </div>
             ) : (
               <div className="text-center py-16 bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-3xl space-y-4">
-                <Icons.AlertCircle className="w-12 h-12 text-slate-400 mx-auto" />
+                <AlertCircle className="w-12 h-12 text-slate-400 mx-auto" />
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white">No workers match your filter choices</h3>
                 <p className="text-sm text-slate-500 max-w-sm mx-auto">Try resetting filters or expanding your locality searches to find nearby pros.</p>
               </div>

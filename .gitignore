@@ -32,3 +32,6 @@ dist-ssr
 
 # TS build cache
 *.tsbuildinfo
+
+.vercel
+set_env.ps1

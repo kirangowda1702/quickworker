@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper: Is user authenticated?
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: Is the user requesting their own document?
+    function isUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Helper: Is user an admin?
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.email == 'admin@quickworker.com' || 
+         exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+    }
+
+    // Rules for Users collection
+    match /users/{userId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Rules for Workers collection
+    match /workers/{workerId} {
+      allow read: if true; // anyone can view service partner directory list
+      allow write: if isAuthenticated(); // registered users can apply or edit their worker profile
+    }
+
+    // Rules for Bookings collection
+    match /bookings/{bookingId} {
+      allow read, write: if isAuthenticated(); // users can view and write bookings
+    }
+
+    // Rules for Notifications collection
+    match /notifications/{notifId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Rules for Services collection
+    match /services/{serviceId} {
+      allow read: if true; // anyone can read services catalog
+      allow write: if isAdmin(); // admin only can add new service templates
+    }
+  }
+}

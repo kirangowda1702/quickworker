@@ -2,7 +2,6 @@ import React, { useState, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { Calendar, Clock, MapPin, User, Phone, ListCollapse, ArrowLeft, Star, Briefcase } from "lucide-react";
 import { useApp } from "../context/AppContext";
-import PaymentModal from "../components/PaymentModal";
 import AddressAutocomplete from "../components/AddressAutocomplete";
 
 export default function BookingPage() {
@@ -23,7 +22,6 @@ export default function BookingPage() {
   const [date, setDate] = useState("");
   const [timeSlot, setTimeSlot] = useState("10:00 AM - 12:00 PM");
   const [instructions, setInstructions] = useState("");
-  const [showPayment, setShowPayment] = useState(false);
 
   // Time slot configurations
   const slots = [
@@ -46,11 +44,6 @@ export default function BookingPage() {
       showToast("Please fill in all required fields", "warning");
       return;
     }
-    setShowPayment(true);
-  };
-
-  const handlePaymentSuccess = async (paymentStatus) => {
-    setShowPayment(false);
     
     const bookingDetails = {
       workerId: worker.id,
@@ -65,14 +58,11 @@ export default function BookingPage() {
       landmark,
       contactPhone: phone,
       instructions,
-      paymentStatus,
+      paymentStatus: "Pending Payment",
       coordinates: coordinates || worker.coordinates
     };
 
-    const newBooking = await addBooking(bookingDetails);
-    if (newBooking) {
-      navigate(`/booking-success?id=${newBooking.bookingId}`);
-    }
+    navigate("/payment", { state: { bookingDetails } });
   };
 
   // Min date set to today to avoid historic bookings
@@ -317,16 +307,6 @@ export default function BookingPage() {
         )}
 
       </div>
-
-      {/* Payment Gateway Modal */}
-      {showPayment && (
-        <PaymentModal
-          amount={worker.price}
-          workerName={worker.name}
-          onClose={() => setShowPayment(false)}
-          onPaymentSuccess={handlePaymentSuccess}
-        />
-      )}
     </div>
   );
 }

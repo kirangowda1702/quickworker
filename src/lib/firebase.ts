@@ -12,6 +12,7 @@ import {
   onAuthStateChanged 
 } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
+import { getStorage, FirebaseStorage } from "firebase/storage";
 
 interface FirebaseConfig {
   apiKey: string;
@@ -24,11 +25,11 @@ interface FirebaseConfig {
 
 const firebaseConfig: FirebaseConfig = {
   apiKey: (import.meta.env.VITE_FIREBASE_API_KEY as string) || "",
-  authDomain: (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string) || "quickworker-54496.firebaseapp.com",
-  projectId: (import.meta.env.VITE_FIREBASE_PROJECT_ID as string) || "quickworker-54496",
-  storageBucket: (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string) || "quickworker-54496.firebasestorage.app",
-  messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string) || "",
-  appId: (import.meta.env.VITE_FIREBASE_APP_ID as string) || ""
+  authDomain: (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string) || "quickworker-c4aee.firebaseapp.com",
+  projectId: (import.meta.env.VITE_FIREBASE_PROJECT_ID as string) || "quickworker-c4aee",
+  storageBucket: (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string) || "quickworker-c4aee.firebasestorage.app",
+  messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string) || "568005882681",
+  appId: (import.meta.env.VITE_FIREBASE_APP_ID as string) || "1:568005882681:web:0229677c2b636857962ee8"
 };
 
 // Check if the configuration has been properly set up in environment variables
@@ -40,6 +41,7 @@ const isConfigValid =
 let app: FirebaseApp;
 let auth: Auth;
 let db: Firestore;
+let storage: FirebaseStorage;
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
 
@@ -65,6 +67,7 @@ try {
 
   auth = getAuth(app);
   db = getFirestore(app);
+  storage = getStorage(app);
 } catch (error) {
   console.error("❌ QuickWorker: Failed to initialize Firebase services:", error);
   throw error;
@@ -74,6 +77,7 @@ export {
   app, 
   auth, 
   db, 
+  storage,
   googleProvider,
   signInWithPopup,
   signInWithRedirect,
@@ -82,6 +86,7 @@ export {
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  GoogleAuthProvider
+  GoogleAuthProvider,
+  isConfigValid
 };
 export default app;

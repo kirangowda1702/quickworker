@@ -31,7 +31,9 @@ export const services = [
   { id: "tailoring", name: "Home Tailoring", category: "Personal Care", icon: "ScissorsLineDashed", price: 149, description: "Stitching and alteration, blouse & dress designing, doorstep delivery." },
   { id: "dog-groomer", name: "Dog Grooming & Walk", category: "Personal Care", icon: "Footprints", price: 399, description: "Dog nail cutting, shampooing, hair trimming, and dog walking." },
   { id: "tutor", name: "Home Tutor", category: "Tech Support", icon: "GraduationCap", price: 299, description: "Personalized classes (K-10), math, science, and languages." },
-  { id: "event-decorator", name: "Event Decorator", category: "Cleaning", icon: "PartyPopper", price: 2499, description: "Balloon decoration, floral setups for birthdays, anniversaries, and pujas." }
+  { id: "event-decorator", name: "Event Decorator", category: "Cleaning", icon: "PartyPopper", price: 2499, description: "Balloon decoration, floral setups for birthdays, anniversaries, and pujas." },
+  { id: "driver", name: "Driver", category: "Repairs", icon: "Car", price: 399, description: "Professional drivers for local or outstation travels." },
+  { id: "deep-cleaning", name: "Deep Cleaning", category: "Cleaning", icon: "Sparkles", price: 899, description: "Intense deep cleaning services for homes and offices." }
 ];
 
 const firstNamesMale = [
@@ -152,13 +154,13 @@ export const workers = (() => {
       
       if (id === 1) {
         finalName = "Kiran Gowda";
-        finalPhone = "+91 9110885805";
+        finalPhone = "+919110885805";
       } else if (id === 2) {
         finalName = "Madan Patil";
-        finalPhone = "+91 8152093467";
+        finalPhone = "+918152093467";
       } else if (id === 3) {
         finalName = "Hemanth Bhat";
-        finalPhone = "+91 6366025492";
+        finalPhone = "+916366025492";
       }
 
       list.push({

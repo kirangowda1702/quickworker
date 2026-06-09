@@ -16,7 +16,8 @@ import {
   Bell,
   CheckCheck,
   Calendar,
-  Briefcase
+  Briefcase,
+  Download
 } from "lucide-react";
 
 export default function Navbar() {
@@ -29,7 +30,9 @@ export default function Navbar() {
     refreshLocation,
     notifications,
     markNotificationAsRead,
-    markAllNotificationsAsRead
+    markAllNotificationsAsRead,
+    isInstallable,
+    triggerInstallPrompt
   } = useApp();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -87,19 +90,25 @@ export default function Navbar() {
             <Link to="/" className="text-sm font-semibold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Home</Link>
             <Link to="/services" className="text-sm font-semibold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Services</Link>
             
-            {user && (
+            {user && !user.isWorker && !user.isAdmin && (
               <Link to="/my-bookings" className="text-sm font-semibold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">My Bookings</Link>
             )}
 
-            <Link to="/register-worker" className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-              <UserPlus className="w-4 h-4" />
-              <span>Become a Partner</span>
-            </Link>
+            {user && user.isWorker && (
+              <Link to="/worker-dashboard" className="text-sm font-semibold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Worker Dashboard</Link>
+            )}
+
+            {!user?.isWorker && (
+              <Link to="/register-worker" className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                <UserPlus className="w-4 h-4" />
+                <span>Become a Partner</span>
+              </Link>
+            )}
             
             {user?.isAdmin && (
               <Link to="/admin" className="flex items-center gap-1 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline">
                 <LayoutDashboard className="w-4 h-4" />
-                <span>Admin</span>
+                <span>Admin Dashboard</span>
               </Link>
             )}
 
@@ -171,6 +180,18 @@ export default function Navbar() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* PWA Install Button */}
+            {isInstallable && (
+              <button
+                onClick={triggerInstallPrompt}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-50 dark:bg-blue-950/45 text-blue-600 dark:text-blue-450 text-xs font-black rounded-2xl transition-all border border-blue-200/40 hover:border-blue-300 cursor-pointer shadow-sm animate-pulse"
+                title="Install QuickWorker app on your device"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Install App</span>
+              </button>
             )}
 
             {/* Dark Mode Toggle */}
@@ -267,17 +288,33 @@ export default function Navbar() {
           </div>
 
           <div className="flex flex-col gap-3">
-            <Link to="/" onClick={() => setIsOpen(false)} className="px-3 py-2 rounded-xl text-base font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900">Home</Link>
-            <Link to="/services" onClick={() => setIsOpen(false)} className="px-3 py-2 rounded-xl text-base font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900">Services</Link>
-            
-            {user && (
-              <Link to="/my-bookings" onClick={() => setIsOpen(false)} className="px-3 py-2 rounded-xl text-base font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900">My Bookings</Link>
+            {isInstallable && (
+              <button
+                onClick={() => { triggerInstallPrompt(); setIsOpen(false); }}
+                className="mx-3 mb-2 flex items-center justify-center gap-2 py-3 bg-blue-50 dark:bg-blue-950/45 text-blue-600 dark:text-blue-450 text-sm font-black rounded-2xl transition-all border border-blue-200/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 cursor-pointer shadow-sm"
+              >
+                <Download className="w-4 h-4 animate-bounce" />
+                <span>Install QuickWorker App</span>
+              </button>
             )}
 
-            <Link to="/register-worker" onClick={() => setIsOpen(false)} className="px-3 py-2 rounded-xl text-base font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900 flex items-center gap-2">
-              <UserPlus className="w-4 h-4 text-blue-500" />
-              <span>Become a Partner</span>
-            </Link>
+            <Link to="/" onClick={() => setIsOpen(false)} className="px-3 py-2 rounded-xl text-base font-semibold text-slate-700 dark:text-slate-305 hover:bg-slate-100 dark:hover:bg-slate-900">Home</Link>
+            <Link to="/services" onClick={() => setIsOpen(false)} className="px-3 py-2 rounded-xl text-base font-semibold text-slate-700 dark:text-slate-305 hover:bg-slate-100 dark:hover:bg-slate-900">Services</Link>
+            
+            {user && !user.isWorker && !user.isAdmin && (
+              <Link to="/my-bookings" onClick={() => setIsOpen(false)} className="px-3 py-2 rounded-xl text-base font-semibold text-slate-700 dark:text-slate-305 hover:bg-slate-100 dark:hover:bg-slate-900">My Bookings</Link>
+            )}
+
+            {user && user.isWorker && (
+              <Link to="/worker-dashboard" onClick={() => setIsOpen(false)} className="px-3 py-2 rounded-xl text-base font-semibold text-slate-700 dark:text-slate-305 hover:bg-slate-100 dark:hover:bg-slate-900">Worker Dashboard</Link>
+            )}
+
+            {!user?.isWorker && (
+              <Link to="/register-worker" onClick={() => setIsOpen(false)} className="px-3 py-2 rounded-xl text-base font-semibold text-slate-700 dark:text-slate-305 hover:bg-slate-100 dark:hover:bg-slate-900 flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-blue-500" />
+                <span>Become a Partner</span>
+              </Link>
+            )}
             
             {user?.isAdmin && (
               <Link to="/admin" onClick={() => setIsOpen(false)} className="px-3 py-2 rounded-xl text-base font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950 flex items-center gap-2">
