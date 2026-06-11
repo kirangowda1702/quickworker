@@ -248,11 +248,26 @@ export const AppProvider = ({ children }) => {
 
   // Handle PWA Events & Offline status
   useEffect(() => {
+    // Check if the install prompt event was already captured by the early script block in index.html
+    if (window.deferredPrompt) {
+      setDeferredPrompt(window.deferredPrompt);
+      setIsInstallable(true);
+      console.log("📥 PWA: Found stashed deferredPrompt on mount!");
+    }
+
     const handleBeforeInstall = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
       setIsInstallable(true);
-      console.log("📥 PWA install prompt available.");
+      console.log("📥 PWA: Captured beforeinstallprompt event inside React context.");
+    };
+
+    const handlePwaInstallable = () => {
+      if (window.deferredPrompt) {
+        setDeferredPrompt(window.deferredPrompt);
+        setIsInstallable(true);
+        console.log("📥 PWA: Received pwa-installable event!");
+      }
     };
 
     const goOnline = () => {
@@ -266,6 +281,7 @@ export const AppProvider = ({ children }) => {
     };
 
     window.addEventListener("beforeinstallprompt", handleBeforeInstall);
+    window.addEventListener("pwa-installable", handlePwaInstallable);
     window.addEventListener("online", goOnline);
     window.addEventListener("offline", goOffline);
 
@@ -277,20 +293,23 @@ export const AppProvider = ({ children }) => {
 
     return () => {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
+      window.removeEventListener("pwa-installable", handlePwaInstallable);
       window.removeEventListener("online", goOnline);
       window.removeEventListener("offline", goOffline);
     };
   }, []);
 
   const triggerInstallPrompt = async () => {
-    if (!deferredPrompt) {
+    const promptEvent = deferredPrompt || window.deferredPrompt;
+    if (!promptEvent) {
       console.warn("PWA: No install prompt captured yet.");
       return false;
     }
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
+    promptEvent.prompt();
+    const { outcome } = await promptEvent.userChoice;
     console.log(`PWA: User choice outcome: ${outcome}`);
     setDeferredPrompt(null);
+    window.deferredPrompt = null;
     setIsInstallable(false);
     setShowInstallBanner(false);
     if (outcome === "accepted") {
