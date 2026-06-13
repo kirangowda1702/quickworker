@@ -793,6 +793,9 @@ export const AppProvider = ({ children }) => {
     if (lowerStatus === "approved" || lowerStatus === "accepted") {
       bookingStatus = "accepted";
       statusLabel = "Accepted";
+    } else if (lowerStatus === "rejected") {
+      bookingStatus = "rejected";
+      statusLabel = "Rejected";
     } else if (lowerStatus.includes("way") || lowerStatus.includes("on_the_way")) {
       bookingStatus = "worker_on_the_way";
       statusLabel = "Worker on the Way";
@@ -836,29 +839,74 @@ export const AppProvider = ({ children }) => {
 
       const updatedBooking = foundBooking || bookings.find(b => b.id === targetDocId || b.id === id || b.bookingId === id);
       if (updatedBooking) {
-        if (bookingStatus === "cancelled") {
+        const customerUid = updatedBooking.customerId || updatedBooking.customerUid || updatedBooking.userId;
+        const workerId = updatedBooking.workerId;
+        const bookingId = updatedBooking.bookingId;
+        const serviceName = updatedBooking.serviceName;
+        const workerName = updatedBooking.workerName;
+        const customerName = updatedBooking.customerName || "User";
+
+        if (bookingStatus === "accepted") {
           addNotification(
-            updatedBooking.customerId || updatedBooking.customerUid || updatedBooking.userId, 
-            `Your booking for ${updatedBooking.serviceName} with ${updatedBooking.workerName} has been cancelled. ID: ${updatedBooking.bookingId}`, 
+            customerUid,
+            `Your booking request for ${serviceName} has been accepted by ${workerName}. ID: ${bookingId}`,
+            "success"
+          ).catch(console.error);
+          addNotification(
+            "admin",
+            `Booking request ${bookingId} has been accepted by partner ${workerName}.`,
+            "info"
+          ).catch(console.error);
+        } else if (bookingStatus === "rejected") {
+          addNotification(
+            customerUid,
+            `Your booking request for ${serviceName} with ${workerName} was declined. ID: ${bookingId}`,
+            "error"
+          ).catch(console.error);
+          addNotification(
+            "admin",
+            `Booking request ${bookingId} was declined by partner ${workerName}.`,
             "warning"
           ).catch(console.error);
-          if (updatedBooking.workerId) {
+        } else if (bookingStatus === "in_progress") {
+          addNotification(
+            customerUid,
+            `Service partner ${workerName} has started working on your ${serviceName} request. ID: ${bookingId}`,
+            "info"
+          ).catch(console.error);
+          addNotification(
+            "admin",
+            `Partner ${workerName} has started work on booking ${bookingId}.`,
+            "info"
+          ).catch(console.error);
+        } else if (bookingStatus === "completed") {
+          addNotification(
+            customerUid,
+            `Your service request ${bookingId} is completed. Please write a review for ${workerName}!`,
+            "success"
+          ).catch(console.error);
+          addNotification(
+            "admin",
+            `Booking ${bookingId} has been completed by partner ${workerName}.`,
+            "success"
+          ).catch(console.error);
+        } else if (bookingStatus === "cancelled") {
+          addNotification(
+            customerUid,
+            `Your booking for ${serviceName} with ${workerName} has been cancelled. ID: ${bookingId}`,
+            "warning"
+          ).catch(console.error);
+          if (workerId) {
             addNotification(
-              updatedBooking.workerId, 
-              `Booking request ${updatedBooking.bookingId} for ${updatedBooking.serviceName} has been cancelled by the customer.`, 
+              workerId,
+              `Booking request ${bookingId} has been cancelled by the customer.`,
               "warning"
             ).catch(console.error);
           }
           addNotification(
-            "admin", 
-            `Booking ${updatedBooking.bookingId} has been cancelled by customer ${updatedBooking.customerName || "User"}.`, 
+            "admin",
+            `Booking ${bookingId} has been cancelled by customer ${customerName}.`,
             "warning"
-          ).catch(console.error);
-        } else {
-          addNotification(
-            updatedBooking.customerUid || updatedBooking.customerId || updatedBooking.userId, 
-            `Your booking ${updatedBooking.bookingId} status is now: ${statusLabel.toLowerCase()}.`, 
-            statusLabel === "Accepted" || statusLabel === "Completed" ? "success" : "info"
           ).catch(console.error);
         }
       }

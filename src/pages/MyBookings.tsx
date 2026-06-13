@@ -114,7 +114,7 @@ export default function MyBookings() {
   useEffect(() => {
     let interval: any;
     if (trackingBooking) {
-      const isArrived = trackingBooking.bookingStatus === "work_started" || trackingBooking.status === "Work Started" || trackingBooking.bookingStatus === "completed" || trackingBooking.status === "Completed";
+      const isArrived = trackingBooking.bookingStatus === "in_progress" || trackingBooking.status === "In Progress" || trackingBooking.bookingStatus === "work_started" || trackingBooking.status === "Work Started" || trackingBooking.bookingStatus === "completed" || trackingBooking.status === "Completed";
       if (isArrived) {
         setTrackingProgress(100);
       } else {
@@ -347,15 +347,22 @@ export default function MyBookings() {
           b.status === "Accepted" || 
           b.status === "Worker on the Way" || 
           b.status === "Work Started" ||
+          b.status === "In Progress" ||
           b.bookingStatus === "pending" || 
           b.bookingStatus === "accepted" || 
           b.bookingStatus === "worker_on_the_way" || 
-          b.bookingStatus === "work_started"
+          b.bookingStatus === "work_started" ||
+          b.bookingStatus === "in_progress"
         );
       case "completed":
         return bookings.filter((b: any) => b.status === "Completed" || b.status === "Reviewed" || b.bookingStatus === "completed");
       case "cancelled":
-        return bookings.filter((b: any) => b.status === "Cancelled" || b.bookingStatus === "cancelled");
+        return bookings.filter((b: any) => 
+          b.status === "Cancelled" || 
+          b.status === "Rejected" ||
+          b.bookingStatus === "cancelled" ||
+          b.bookingStatus === "rejected"
+        );
       default:
         return bookings; // "all"
     }
@@ -371,13 +378,20 @@ export default function MyBookings() {
         b.status === "Accepted" || 
         b.status === "Worker on the Way" || 
         b.status === "Work Started" ||
+        b.status === "In Progress" ||
         b.bookingStatus === "pending" || 
         b.bookingStatus === "accepted" || 
         b.bookingStatus === "worker_on_the_way" || 
-        b.bookingStatus === "work_started"
+        b.bookingStatus === "work_started" ||
+        b.bookingStatus === "in_progress"
       ).length,
       completed: list.filter((b: any) => b.status === "Completed" || b.status === "Reviewed" || b.bookingStatus === "completed").length,
-      cancelled: list.filter((b: any) => b.status === "Cancelled" || b.bookingStatus === "cancelled").length,
+      cancelled: list.filter((b: any) => 
+        b.status === "Cancelled" || 
+        b.status === "Rejected" ||
+        b.bookingStatus === "cancelled" ||
+        b.bookingStatus === "rejected"
+      ).length,
       all: list.length,
       unreadNotif: (notifications || []).filter((n: any) => !n.read).length
     };
@@ -1155,7 +1169,7 @@ export default function MyBookings() {
                   <div className="space-y-4">
                     {filteredBookings.map((b: any) => {
                       const workerInfo = workers?.find((w: any) => w.id === b.workerId) || null;
-                      const isTrackable = b.status === "Approved" || b.status === "Accepted" || b.status === "Worker on the Way" || b.status === "Work Started" || b.bookingStatus === "accepted" || b.bookingStatus === "worker_on_the_way" || b.bookingStatus === "work_started";
+                      const isTrackable = b.status === "Approved" || b.status === "Accepted" || b.status === "Worker on the Way" || b.status === "Work Started" || b.status === "In Progress" || b.bookingStatus === "accepted" || b.bookingStatus === "worker_on_the_way" || b.bookingStatus === "work_started" || b.bookingStatus === "in_progress";
                       return (
                         <motion.div
                           layout
@@ -1167,7 +1181,7 @@ export default function MyBookings() {
                             (b.status === "Pending" || b.bookingStatus === "pending") ? "bg-amber-400" :
                             (b.status === "Approved" || b.status === "Accepted" || b.bookingStatus === "accepted") ? "bg-blue-500 animate-pulse" :
                             (b.status === "Worker on the Way" || b.bookingStatus === "worker_on_the_way") ? "bg-indigo-500 animate-pulse" :
-                            (b.status === "Work Started" || b.bookingStatus === "work_started") ? "bg-purple-500 animate-pulse" :
+                            (b.status === "Work Started" || b.status === "In Progress" || b.bookingStatus === "work_started" || b.bookingStatus === "in_progress") ? "bg-purple-500 animate-pulse" :
                             (b.status === "Completed" || b.status === "Reviewed" || b.bookingStatus === "completed") ? "bg-emerald-500" :
                             "bg-rose-500"
                           }`}></div>
@@ -1193,20 +1207,21 @@ export default function MyBookings() {
                                    (b.status === "Pending" || b.bookingStatus === "pending") ? "bg-amber-100 text-amber-855 dark:bg-amber-950/40 shadow-[0_0_10px_rgba(245,158,11,0.2)]" :
                                    (b.status === "Approved" || b.status === "Accepted" || b.bookingStatus === "accepted") ? "bg-blue-100 text-blue-805 dark:bg-blue-950/40 shadow-[0_0_10px_rgba(59,130,246,0.2)]" :
                                    (b.status === "Worker on the Way" || b.bookingStatus === "worker_on_the_way") ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 shadow-[0_0_15px_rgba(99,102,241,0.4)] animate-pulse" :
-                                   (b.status === "Work Started" || b.bookingStatus === "work_started") ? "bg-purple-100 text-purple-800 dark:bg-purple-950/40 shadow-[0_0_15px_rgba(168,85,247,0.4)] animate-pulse" :
+                                   (b.status === "Work Started" || b.status === "In Progress" || b.bookingStatus === "work_started" || b.bookingStatus === "in_progress") ? "bg-purple-100 text-purple-805 dark:bg-purple-955/40 shadow-[0_0_15px_rgba(168,85,247,0.4)] animate-pulse" :
                                    (b.status === "Completed" || b.status === "Reviewed" || b.bookingStatus === "completed") ? "bg-emerald-100 text-emerald-850 dark:bg-emerald-950/40" :
-                                   (b.status === "Cancelled" || b.bookingStatus === "cancelled") ? "bg-rose-100 text-rose-800 dark:bg-rose-955/40 dark:text-rose-400 shadow-[0_0_10px_rgba(244,63,94,0.35)] border border-rose-200/20" :
+                                   (b.status === "Cancelled" || b.bookingStatus === "cancelled" || b.bookingStatus === "rejected" || b.status === "Rejected") ? "bg-rose-100 text-rose-805 dark:bg-rose-955/40 dark:text-rose-400 shadow-[0_0_10px_rgba(244,63,94,0.35)] border border-rose-200/20" :
                                    "bg-rose-100 text-rose-850 dark:bg-rose-955"
                                  }`}>
                                    {(b.status === "Approved" || b.status === "Accepted" || b.bookingStatus === "accepted") && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping inline-block"></span>}
                                    {(b.status === "Pending" || b.bookingStatus === "pending") && <span className="w-1.5 h-1.5 rounded-full bg-amber-450 animate-ping inline-block"></span>}
                                    {(b.status === "Worker on the Way" || b.bookingStatus === "worker_on_the_way") && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping inline-block"></span>}
-                                   {(b.status === "Work Started" || b.bookingStatus === "work_started") && <Wrench className="w-3 h-3 text-purple-600 animate-spin mr-1" />}
-                                   {(b.status === "Cancelled" || b.bookingStatus === "cancelled") && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 inline-block shadow-[0_0_6px_rgba(244,63,94,0.6)]"></span>}
+                                   {(b.status === "Work Started" || b.status === "In Progress" || b.bookingStatus === "work_started" || b.bookingStatus === "in_progress") && <Wrench className="w-3 h-3 text-purple-600 animate-spin mr-1" />}
+                                   {(b.status === "Cancelled" || b.bookingStatus === "cancelled" || b.bookingStatus === "rejected" || b.status === "Rejected") && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 inline-block shadow-[0_0_6px_rgba(244,63,94,0.6)]"></span>}
                                    <span>
                                      {b.bookingStatus === "worker_on_the_way" || b.status === "Worker on the Way" ? "Partner on the way" :
-                                      b.bookingStatus === "work_started" || b.status === "Work Started" ? "Work In Progress" :
+                                      b.bookingStatus === "work_started" || b.status === "Work Started" || b.bookingStatus === "in_progress" || b.status === "In Progress" ? "Work In Progress" :
                                       b.status === "Pending" || b.status === "PENDING" || b.bookingStatus === "pending" ? "PENDING" :
+                                      b.bookingStatus === "rejected" || b.status === "Rejected" ? "REJECTED" :
                                       b.status === "Cancelled" || b.status === "CANCELLED" || b.bookingStatus === "cancelled" ? "CANCELLED" :
                                       b.status}
                                    </span>
@@ -1261,13 +1276,13 @@ export default function MyBookings() {
                               )}
 
                               {(b.status === "Worker on the Way" || b.bookingStatus === "worker_on_the_way") && (
-                                <div className="bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200/20 px-3.5 py-2 rounded-2xl text-[11px] text-indigo-650 dark:text-indigo-400 flex items-center gap-2 mt-2 w-fit shadow-[0_0_10px_rgba(99,102,241,0.1)]">
+                                <div className="bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200/20 px-3.5 py-2 rounded-2xl text-[11px] text-indigo-655 dark:text-indigo-400 flex items-center gap-2 mt-2 w-fit shadow-[0_0_10px_rgba(99,102,241,0.1)]">
                                   <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping"></span>
                                   <span><strong>On the Way</strong>: Partner is heading to your location (Arriving in ~10 mins)</span>
                                 </div>
                               )}
 
-                              {(b.status === "Work Started" || b.bookingStatus === "work_started") && (
+                              {(b.status === "Work Started" || b.status === "In Progress" || b.bookingStatus === "work_started" || b.bookingStatus === "in_progress") && (
                                 <div className="bg-purple-50/50 dark:bg-purple-950/30 border border-purple-200/20 px-3.5 py-2 rounded-2xl text-[11px] text-purple-650 dark:text-purple-400 flex items-center gap-2 mt-2 w-fit shadow-[0_0_10px_rgba(168,85,247,0.1)]">
                                   <Wrench className="w-3.5 h-3.5 text-purple-500 animate-spin" />
                                   <span><strong>Work In Progress</strong>: Service partner has arrived and is working.</span>
@@ -1278,6 +1293,74 @@ export default function MyBookings() {
                                 <p className="text-[11px] text-slate-400 italic bg-slate-50/50 dark:bg-slate-950/20 p-2.5 rounded-xl border border-slate-100/50 dark:border-slate-850/40 mt-2">
                                   Special instructions: "{b.notes}"
                                 </p>
+                              )}
+
+                              {/* Realtime Status Flow Stepper */}
+                              {b.status !== "Cancelled" && b.bookingStatus !== "cancelled" && b.bookingStatus !== "rejected" && b.status !== "Rejected" && (
+                                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/60">
+                                  <p className="text-[10px] font-bold text-slate-450 uppercase tracking-wider mb-3">Booking Progress</p>
+                                  <div className="flex items-center justify-between relative">
+                                    {/* Background Line */}
+                                    <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1 bg-slate-100 dark:bg-slate-800 rounded-full z-0" />
+                                    {/* Progress Line */}
+                                    <div 
+                                      className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-blue-600 rounded-full z-0 transition-all duration-500" 
+                                      style={{ 
+                                        width: 
+                                          (b.bookingStatus === "completed" || b.status === "Completed" || b.status === "Reviewed" || b.bookingStatus === "reviewed") ? "100%" :
+                                          (b.bookingStatus === "in_progress" || b.status === "In Progress" || b.bookingStatus === "work_started" || b.status === "Work Started") ? "66%" :
+                                          (b.bookingStatus === "accepted" || b.status === "Accepted" || b.status === "Approved") ? "33%" : "0%"
+                                      }}
+                                    />
+                                    
+                                    {/* Step Nodes */}
+                                    {[
+                                      { label: "Pending", key: "pending" },
+                                      { label: "Accepted", key: "accepted" },
+                                      { label: "In Progress", key: "in_progress" },
+                                      { label: "Completed", key: "completed" }
+                                    ].map((step, idx) => {
+                                      const isCurrent = 
+                                        (step.key === "pending" && (b.bookingStatus === "pending" || b.status === "Pending")) ||
+                                        (step.key === "accepted" && (b.bookingStatus === "accepted" || b.status === "Accepted" || b.status === "Approved")) ||
+                                        (step.key === "in_progress" && (b.bookingStatus === "in_progress" || b.status === "In Progress" || b.bookingStatus === "work_started" || b.status === "Work Started")) ||
+                                        (step.key === "completed" && (b.bookingStatus === "completed" || b.status === "Completed" || b.status === "Reviewed" || b.bookingStatus === "reviewed"));
+
+                                      const isPassed = 
+                                        (step.key === "pending" && (b.bookingStatus !== "pending" && b.status !== "Pending")) ||
+                                        (step.key === "accepted" && (b.bookingStatus === "in_progress" || b.status === "In Progress" || b.bookingStatus === "work_started" || b.status === "Work Started" || b.bookingStatus === "completed" || b.status === "Completed" || b.status === "Reviewed" || b.bookingStatus === "reviewed")) ||
+                                        (step.key === "in_progress" && (b.bookingStatus === "completed" || b.status === "Completed" || b.status === "Reviewed" || b.bookingStatus === "reviewed")) ||
+                                        (step.key === "completed" && (b.bookingStatus === "completed" && b.status === "Completed"));
+
+                                      return (
+                                        <div key={step.key} className="flex flex-col items-center z-10">
+                                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black transition-all ${
+                                            isCurrent ? "bg-blue-600 text-white ring-4 ring-blue-500/20" :
+                                            isPassed ? "bg-emerald-500 text-white" :
+                                            "bg-slate-200 text-slate-400 dark:bg-slate-800 dark:text-slate-600"
+                                          }`}>
+                                            {isPassed ? "✓" : idx + 1}
+                                          </div>
+                                          <span className={`text-[10px] font-extrabold mt-1.5 ${
+                                            isCurrent ? "text-blue-600 dark:text-blue-400" :
+                                            isPassed ? "text-slate-700 dark:text-slate-300" :
+                                            "text-slate-400 dark:text-slate-600"
+                                          }`}>
+                                            {step.label}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Rejected/Declined Indicator */}
+                              {(b.bookingStatus === "rejected" || b.status === "Rejected") && (
+                                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/60 flex items-center gap-2 text-rose-600 dark:text-rose-400 bg-rose-50/25 dark:bg-rose-955/10 p-3 rounded-2xl border border-rose-200/20">
+                                  <X className="w-4 h-4 shrink-0" />
+                                  <span className="text-xs font-bold">This booking request was declined by the service partner.</span>
+                                </div>
                               )}
                             </div>
                           </div>
@@ -1312,7 +1395,7 @@ export default function MyBookings() {
                                 )}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="p-2 border border-emerald-500/30 text-emerald-600 dark:text-emerald-500 bg-emerald-50/10 hover:bg-emerald-550 hover:text-white rounded-xl transition-all shadow-sm flex items-center justify-center cursor-pointer"
+                                className="p-2 border border-emerald-500/30 text-emerald-655 dark:text-emerald-500 bg-emerald-50/10 hover:bg-emerald-550 hover:text-white rounded-xl transition-all shadow-sm flex items-center justify-center cursor-pointer"
                                 title="WhatsApp Worker"
                               >
                                 <MessageCircle className="w-3.5 h-3.5" />
@@ -1322,7 +1405,7 @@ export default function MyBookings() {
                               {b.status === "Pending" && (
                                 <button
                                   onClick={() => setReschedulingBooking(b)}
-                                  className="px-3 py-2 border border-slate-205 dark:border-slate-800 text-slate-655 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-950 font-bold text-xs rounded-xl cursor-pointer transition-all"
+                                  className="px-3 py-2 border border-slate-205 dark:border-slate-800 text-slate-655 dark:text-slate-355 hover:bg-slate-50 dark:hover:bg-slate-950 font-bold text-xs rounded-xl cursor-pointer transition-all"
                                 >
                                   Reschedule
                                 </button>
@@ -1343,7 +1426,7 @@ export default function MyBookings() {
                                 <button
                                   onClick={() => setCancelConfirmBooking(b)}
                                   disabled={cancelingBookingId !== null}
-                                  className="px-3 py-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450 font-bold text-xs rounded-xl border border-rose-200/40 hover:border-rose-300 transition-all cursor-pointer disabled:opacity-55 flex items-center gap-1.5"
+                                  className="px-3 py-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-955/20 text-rose-600 dark:text-rose-450 font-bold text-xs rounded-xl border border-rose-200/40 hover:border-rose-300 transition-all cursor-pointer disabled:opacity-55 flex items-center gap-1.5"
                                 >
                                   {cancelingBookingId === (b.id || b.bookingId) ? (
                                     <>
@@ -1658,7 +1741,7 @@ export default function MyBookings() {
           const cx = (1 - t) * (1 - t) * 50 + 2 * (1 - t) * t * 200 + t * t * 350;
           const cy = (1 - t) * (1 - t) * 150 + 2 * (1 - t) * t * 50 + t * t * 50;
           
-          const isArrived = trackingBooking.bookingStatus === "work_started" || trackingBooking.status === "Work Started" || trackingBooking.bookingStatus === "completed" || trackingBooking.status === "Completed";
+          const isArrived = trackingBooking.bookingStatus === "in_progress" || trackingBooking.status === "In Progress" || trackingBooking.bookingStatus === "work_started" || trackingBooking.status === "Work Started" || trackingBooking.bookingStatus === "completed" || trackingBooking.status === "Completed";
           
           const etaText = isArrived 
             ? "Arrived & Work in Progress" 

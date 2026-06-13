@@ -26,6 +26,7 @@ export default function WorkerDashboard() {
 
   // Active sub-tab switcher: active, completed, profile
   const [activeTab, setActiveTab] = useState("jobs");
+  const [jobFilter, setJobFilter] = useState("all");
 
   // Edit profile states
   const [editing, setEditing] = useState(false);
@@ -51,8 +52,26 @@ export default function WorkerDashboard() {
   // 2. Filter bookings specifically assigned to this worker
   const workerBookings = useMemo(() => {
     if (!workerProfile) return [];
-    return bookings.filter(b => b.workerId === workerProfile.id || b.workerEmail === user.email);
-  }, [bookings, workerProfile, user]);
+    const baseList = bookings.filter(b => b.workerId === workerProfile.id || b.workerEmail === user.email);
+    
+    if (jobFilter === "pending") {
+      return baseList.filter(b => b.bookingStatus === "pending" || b.status === "Pending");
+    } else if (jobFilter === "active") {
+      return baseList.filter(b => 
+        b.bookingStatus === "accepted" || b.status === "Accepted" || b.status === "Approved" ||
+        b.bookingStatus === "in_progress" || b.status === "In Progress" ||
+        b.bookingStatus === "worker_on_the_way" || b.status === "Worker on the Way" ||
+        b.bookingStatus === "work_started" || b.status === "Work Started"
+      );
+    } else if (jobFilter === "completed") {
+      return baseList.filter(b => 
+        b.bookingStatus === "completed" || b.status === "Completed" || b.status === "Reviewed" || b.bookingStatus === "reviewed" ||
+        b.bookingStatus === "rejected" || b.status === "Rejected" ||
+        b.bookingStatus === "cancelled" || b.status === "Cancelled"
+      );
+    }
+    return baseList;
+  }, [bookings, workerProfile, user, jobFilter]);
 
   // Calculations for earnings
   const analytics = useMemo(() => {
@@ -256,11 +275,54 @@ export default function WorkerDashboard() {
           >
             Profile & Availability
           </button>
-        </div>
-
-        {/* Tab 1: Assigned Jobs List */}
+        </div>        {/* Tab 1: Assigned Jobs List */}
         {activeTab === "jobs" && (
           <div className="space-y-4">
+            {/* Job Sub-filters */}
+            <div className="flex flex-wrap gap-2 bg-slate-105/85 dark:bg-slate-900/60 p-1.5 rounded-2xl w-fit border border-slate-200/40 dark:border-slate-800/40 mb-2">
+              {[
+                { id: "all", label: "All Jobs" },
+                { id: "pending", label: "Pending Requests" },
+                { id: "active", label: "Active Jobs" },
+                { id: "completed", label: "Finished" }
+              ].map((filter) => {
+                let count = 0;
+                const baseList = bookings.filter(b => workerProfile && (b.workerId === workerProfile.id || b.workerEmail === user.email));
+                if (filter.id === "all") count = baseList.length;
+                else if (filter.id === "pending") count = baseList.filter(b => b.bookingStatus === "pending" || b.status === "Pending").length;
+                else if (filter.id === "active") count = baseList.filter(b => 
+                  b.bookingStatus === "accepted" || b.status === "Accepted" || b.status === "Approved" ||
+                  b.bookingStatus === "in_progress" || b.status === "In Progress" ||
+                  b.bookingStatus === "worker_on_the_way" || b.status === "Worker on the Way" ||
+                  b.bookingStatus === "work_started" || b.status === "Work Started"
+                ).length;
+                else if (filter.id === "completed") count = baseList.filter(b => 
+                  b.bookingStatus === "completed" || b.status === "Completed" || b.status === "Reviewed" || b.bookingStatus === "reviewed" ||
+                  b.bookingStatus === "rejected" || b.status === "Rejected" ||
+                  b.bookingStatus === "cancelled" || b.status === "Cancelled"
+                ).length;
+
+                return (
+                  <button
+                    key={filter.id}
+                    onClick={() => setJobFilter(filter.id)}
+                    className={`px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${
+                      jobFilter === filter.id 
+                        ? "bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50" 
+                        : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                    }`}
+                  >
+                    <span>{filter.label}</span>
+                    <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-black ${
+                      jobFilter === filter.id ? "bg-blue-50 dark:bg-blue-950/45 text-blue-600 dark:text-blue-400" : "bg-slate-200 dark:bg-slate-800 text-slate-500"
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
             {workerBookings.length > 0 ? (
               <div className="grid grid-cols-1 gap-4">
                 {workerBookings.map((booking) => (
@@ -273,9 +335,10 @@ export default function WorkerDashboard() {
                       (booking.bookingStatus === "pending" || booking.status === "Pending") ? "bg-amber-400" :
                       (booking.bookingStatus === "accepted" || booking.status === "Approved" || booking.status === "Accepted") ? "bg-blue-500" :
                       (booking.bookingStatus === "worker_on_the_way" || booking.status === "Worker on the Way") ? "bg-indigo-500 animate-pulse" :
-                      (booking.bookingStatus === "in_progress" || booking.status === "In Progress" || booking.status === "Work Started") ? "bg-purple-500 animate-pulse" :
-                      (booking.bookingStatus === "completed" || booking.status === "Completed" || booking.bookingStatus === "reviewed" || booking.status === "Reviewed") ? "bg-emerald-500" :
+                      (booking.bookingStatus === "in_progress" || booking.status === "In Progress" || booking.status === "work_started" || booking.status === "Work Started") ? "bg-purple-500 animate-pulse" :
+                      (booking.bookingStatus === "completed" || booking.status === "Completed" || booking.status === "reviewed" || booking.status === "Reviewed") ? "bg-emerald-500" :
                       (booking.bookingStatus === "cancelled" || booking.status === "Cancelled") ? "bg-rose-500 animate-pulse" :
+                      (booking.bookingStatus === "rejected" || booking.status === "Rejected") ? "bg-rose-500" :
                       "bg-slate-400"
                     }`} />
 
@@ -287,13 +350,14 @@ export default function WorkerDashboard() {
                           (booking.bookingStatus === "accepted" || booking.status === "Approved" || booking.status === "Accepted") ? "bg-blue-100 text-blue-800" :
                           (booking.bookingStatus === "worker_on_the_way" || booking.status === "Worker on the Way") ? "bg-indigo-100 text-indigo-800 animate-pulse" :
                           (booking.bookingStatus === "in_progress" || booking.status === "In Progress" || booking.status === "Work Started") ? "bg-purple-100 text-purple-800 animate-pulse" :
-                          (booking.bookingStatus === "completed" || booking.status === "Completed" || booking.bookingStatus === "reviewed" || booking.status === "Reviewed") ? "bg-emerald-100 text-emerald-800" :
-                          (booking.bookingStatus === "cancelled" || booking.status === "Cancelled") ? "bg-rose-105 text-rose-800 dark:bg-rose-955/40 dark:text-rose-400 shadow-[0_0_8px_rgba(244,63,94,0.25)]" :
+                          (booking.bookingStatus === "completed" || booking.status === "Completed" || booking.status === "reviewed" || booking.status === "Reviewed") ? "bg-emerald-100 text-emerald-800" :
+                          (booking.bookingStatus === "cancelled" || booking.status === "Cancelled" || booking.bookingStatus === "rejected" || booking.status === "Rejected") ? "bg-rose-105 text-rose-800 dark:bg-rose-955/40 dark:text-rose-400 shadow-[0_0_8px_rgba(244,63,94,0.25)]" :
                           "bg-slate-100 text-slate-655"
                         }`}>
                           {booking.bookingStatus === "in_progress" || booking.status === "In Progress" ? "In Progress" :
                            booking.bookingStatus === "worker_on_the_way" || booking.status === "Worker on the Way" ? "On Way" :
                            booking.bookingStatus === "pending" || booking.status === "Pending" ? "PENDING" :
+                           booking.bookingStatus === "rejected" || booking.status === "Rejected" ? "REJECTED" :
                            booking.bookingStatus === "cancelled" || booking.status === "Cancelled" ? "CANCELLED" :
                            booking.status}
                         </span>
@@ -304,6 +368,7 @@ export default function WorkerDashboard() {
 
                       <div className="space-y-2 text-xs text-slate-500 dark:text-slate-400">
                         <p>Customer: <strong className="text-slate-900 dark:text-white">{booking.customerName}</strong></p>
+                        <p>Service Type: <strong className="text-blue-650 dark:text-blue-400 font-extrabold">{booking.serviceName}</strong></p>
                         <p className="flex items-start gap-1">
                           <MapPin className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
                           <span>Address: {booking.address} {booking.landmark && `(Landmark: ${booking.landmark})`}</span>
@@ -328,7 +393,7 @@ export default function WorkerDashboard() {
                           )}`} 
                           target="_blank" 
                           rel="noopener noreferrer" 
-                          className="p-2 border border-emerald-500/30 text-emerald-650 dark:text-emerald-500 bg-emerald-50/10 hover:bg-emerald-550 hover:text-white rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 text-xs font-bold flex-1"
+                          className="p-2 border border-emerald-500/30 text-emerald-655 dark:text-emerald-500 bg-emerald-50/10 hover:bg-emerald-550 hover:text-white rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 text-xs font-bold flex-1"
                         >
                           <MessageSquare className="w-3.5 h-3.5" />
                           <span>WhatsApp</span>
@@ -338,14 +403,14 @@ export default function WorkerDashboard() {
                       {(booking.bookingStatus === "pending" || booking.status === "Pending") && (
                         <div className="flex gap-2 w-full">
                           <button
-                            onClick={() => updateBookingStatus(booking.id, "Approved")}
-                            className="py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl flex-1 cursor-pointer"
+                            onClick={() => updateBookingStatus(booking.id, "accepted")}
+                            className="py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl flex-1 cursor-pointer shadow-sm"
                           >
                             Accept
                           </button>
                           <button
-                            onClick={() => updateBookingStatus(booking.id, "Cancelled")}
-                            className="py-2 px-3 border border-rose-500/30 text-rose-600 hover:bg-rose-55 rounded-xl text-xs font-bold flex-1 cursor-pointer"
+                            onClick={() => updateBookingStatus(booking.id, "rejected")}
+                            className="py-2 px-3 border border-rose-500/30 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-955/20 rounded-xl text-xs font-bold flex-1 cursor-pointer"
                           >
                             Reject
                           </button>
@@ -354,31 +419,21 @@ export default function WorkerDashboard() {
 
                       {(booking.bookingStatus === "accepted" || booking.status === "Approved" || booking.status === "Accepted") && (
                         <button
-                          onClick={() => updateBookingStatus(booking.id, "Worker on the Way")}
-                          className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-755 text-white font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-sm transition-all"
+                          onClick={() => updateBookingStatus(booking.id, "in_progress")}
+                          className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-sm transition-all"
                         >
-                          <MapPin className="w-3.5 h-3.5 text-white" />
-                          <span>Start Journey (On Way)</span>
-                        </button>
-                      )}
-
-                      {(booking.bookingStatus === "worker_on_the_way" || booking.status === "Worker on the Way") && (
-                        <button
-                          onClick={() => updateBookingStatus(booking.id, "In Progress")}
-                          className="w-full py-2.5 bg-purple-655 hover:bg-purple-700 text-white font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-sm transition-all animate-pulse"
-                        >
-                          <Clock className="w-3.5 h-3.5 animate-spin" />
-                          <span>Arrived & Start Work</span>
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>Start Work</span>
                         </button>
                       )}
 
                       {(booking.bookingStatus === "in_progress" || booking.bookingStatus === "work_started" || booking.status === "In Progress" || booking.status === "Work Started") && (
                         <button
-                          onClick={() => updateBookingStatus(booking.id, "Completed")}
+                          onClick={() => updateBookingStatus(booking.id, "completed")}
                           className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-sm transition-all"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Mark Job Completed</span>
+                          <span>Complete Work</span>
                         </button>
                       )}
                     </div>
